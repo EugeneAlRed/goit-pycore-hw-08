@@ -1,23 +1,8 @@
+from abc import ABC, abstractmethod
 from collections import UserDict
 import re
 from datetime import datetime, timedelta
 import pickle
-
-
-def input_error(func):
-    def inner(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except ValueError:
-            return "Give me name and phone please."
-        except KeyError:
-            return "No such name found"
-        except IndexError:
-            return "Not found"
-        except Exception as e:
-            return f'Error: {e}'
-
-    return inner
 
 
 def save_data(book, filename="addressbook.pkl"):
@@ -59,7 +44,7 @@ class Phone(Field):
 class Birthday(Field):
     def __init__(self, value):
         try:
-            datetime.strptime(value, '%d-%m-%Y')
+            self.value = datetime.strptime(value, '%d.%m.%Y')
         except ValueError:
             raise ValueError("Invalid date format. Use DD.MM.YYYY")
 
@@ -80,132 +65,124 @@ class Record:
         for num in self.phones:
             if num.value == old_phone:
                 num.value = new_phone
+        raise ValueError("Phone number not found")
 
     def find_phone(self, phone):
         return [str(num) for num in self.phones if num.value == phone]
 
-    def __str__(self):
-        return f"Contact name: {self.name.value} phones: {'; '.join(num.value for num in self.phones)}"
+    def add_birthday(self, birthday):
+        if self.birthday:
+            raise ValueError("Birthday exists")
+        self.birthday = birthday
+
+    def show_birthday(self, birthday):
+        self.birthday = birthday
+        if not self.birthday:
+            raise ValueError("Birthday not found")
+        return self.birthday.value.strftime("%d.%m.%Y")
 
 
 class AddressBook(UserDict):
-    def add_record(self, record):
-        self.data[record.name.value] = record
+    def add_contact(self, args):
+        name, phone = args
+        self.data[name] = Record(name)
+        self.data[name].add_phone(phone)
 
-    def find(self, name):
-        return self.data.get(name)
+    def change_contact(self, args):
+        name, new_phone = args
+        record = self.data.get(name)
+        if record:
+            old_phone = record.phones[0].value
+            record.delete_phone(old_phone)
+            record.add_phone(new_phone)
+            return "Contact updated."
 
-    def delete(self, name):
-        if name in self.data:
-            del self.data[name]
+    def show_phone(self, args):
+        name = args[0]
+        phone = self.data.get(name)
+        if phone:
+            return phone.phones[0].value
 
-    def get_upcoming_birthdays(self):
-        date_now = datetime.today().date()
-        bday = []
-        for record in self:
-            if self[record].birthday:
-                birthday = datetime.strptime(
-                    str(self[record].birthday), "%d.%m.%Y").date()
-                birthday = birthday.replace(year=date_now.year)
-                days = (birthday - date_now).days
-                if days <= 7:
-                    if birthday.weekday() == 5:
-                        birthday += timedelta(days=2)
-                    elif birthday.weekday() == 6:
-                        birthday += timedelta(days=1)
-                    bday.append({'name': self[record].name.value, 'birthday': datetime.strftime(
-                        birthday, "%d.%m.%Y")})
-        return bday
+    def add_birthday(self, name, birthday):
+        record = self.data.get(name)
+        if record:
+            record.add_birthday(birthday)
+            return "Birthday recorded"
+        else:
+            return "Contact not found"
 
+    def show_birthday(self, name):
+        record = self.data.get(name)
+        if record and record.birthday:
+            return record.show_birthday()
+        else:
+            raise ValueError ("Not found")
+        
 
-@input_error
-def add_birthday(args, book):
-    name, birthday = args
-    record = book.find(name)
-    if record:
-        return record.add_birthday(birthday)
-    else:
-        return "Contact not found"
+    
 
-
-@input_error
-def show_birthday(args, book):
-    name = args[0]
-    record = book.find(name)
-    if record:
-        return record.birthday.value.strftime("%d.%m.%Y")
-    return "Not found"
-
-
-def birthdays(book):
-    upcoming_birthdays = book.get_upcoming_birthdays()
-    if upcoming_birthdays:
-        result = ""
-        for birthday_info in upcoming_birthdays:
-            result += f"{birthday_info['name']}'s birthday is on {birthday_info['birthday']}.\n"
-        return result.strip()
-    else:
-        return 'Not upcoming birthdays'
+    def birthdays(self):
+        upcoming_birthdays = []
+        today = datetime.combine(datetime.today(), datetime.min.time())
+        for record in self.values():
+            if record.birthday:
+                if (record.birthday.value - today).days <= 7:
+                    upcoming_birthdays.append(record.name.value)
+        return '\n'.join(upcoming_birthdays) 
 
 
-@input_error
+
+    def show_all(self):
+        all_contacts = []
+        for record in self.values():
+            contact_info = f" Name: {record.name.value}"
+            if record.phones:
+                phone_info = ', '.join([phone.value for phone in record.phones])
+                contact_info += f"  Phone: {phone_info}"
+            if record.birthday:
+                birthday_info = record.birthday.value.strftime("%d.%m.%Y")
+                contact_info += f"  Birthday: {birthday_info}"
+            all_contacts.append(contact_info)
+        return '\n'.join(all_contacts)
+
+
+class Bot(ABC):
+    @abstractmethod
+    def message(self):
+        pass
+
+    @abstractmethod
+    def help(self):
+        pass
+
+
+class SimpleBot(Bot):
+    def message(self, message):
+        print(message)
+
+    def help(self, message):
+        print(message)
+
+
 def parse_input(user_input):
     cmd, *args = user_input.split()
     cmd = cmd.strip().lower()
     return cmd, *args
 
 
-@input_error
-def add_contact(args, book):
-    name, phone = args
-    record = Record(name)
-    record.add_phone(phone)
-    book[name] = record
-    return "Contact added."
-
-
-@input_error
-def change_contact(args, book):
-    name, phone = args
-    record = Record(name)
-    record.add_phone(phone)
-    book[name] = record
-    return "Contact updated."
-
-
-@input_error
-def show_phone(args, book):
-    name = args[0]
-    phone = book[name]
-    return phone
-
-
-@input_error
-def show_all(book):
-    for k, v in book.items():
-        print(f"{k}: {v}")
-
-
-@input_error
-def add_birthday(args, book):
-    name, birthday = args
-    book.find(name).birthday = birthday
-    return "Birthday added."
-
-
-@input_error
-def show_birthday(args, book):
-    name = args[0]
-    return book.get(name)
-
-
-def birthdays(book):
-    return book.get_upcoming_birthdays()
-
-
 def main():
     book = load_data()
-    print("Welcome to the assistant bot!")
+    bot = SimpleBot()
+
+    bot.message("Welcome to the assistant bot!")
+    bot.help("Commands:\n"
+             "add [name] [phone] - Create a new contact\n"
+             "change [name] [new_phone] - Change phone number\n"
+             "phone [name] - Show phone number\n"
+             "all - Show all contacts\n"
+             "add-birthday [name] [birthday] - Create birthday\n"
+             "show-birthday [name] - Show birthday\n"
+             "birthdays - Show upcoming birthdays")
     while True:
         user_input = input("Enter a command: ")
         command, *args = parse_input(user_input)
@@ -216,19 +193,23 @@ def main():
         elif command == "hello":
             print("How can I help you?")
         elif command == "add":
-            print(add_contact(args, book))
+            book.add_contact(args)
+            bot.message("Contact added")
         elif command == 'change':
-            print(change_contact(args, book))
+            bot.message(book.change_contact(args))
+
         elif command == "phone":
-            print(show_phone(args, book))
+            bot.message(book.show_phone(args))
         elif command == "all":
-            show_all(book)
+            bot.message(book.show_all())
         elif command == "add-birthday":
-            print(add_birthday(args, book))
+            name, birthday = args
+            bot.message(book.add_birthday(name, birthday))
         elif command == "show-birthday":
-            print(show_birthday(args, book))
+            name = args[0]
+            bot.message(book.show_birthday(name))
         elif command == "birthdays":
-            print(birthdays(book))
+            bot.message(book.birthdays)
         else:
             print("Invalid command.")
 
